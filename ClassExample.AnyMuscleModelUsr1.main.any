@@ -1,0 +1,366 @@
+/* 
+Example model of how to model a contact between two objects that switch off during the
+simulation.
+
+The model consists of a simple 2D arm model with eight muscles. Furthermore, it contains a
+dumbbell segment that is attached to the hand node of the arm.
+
+The simulation performs a arm curl where the effect of the dumbbell is switched off
+halfway through the simulation.
+
+To achieve this we have defined a set of contact muscles between the hand node and the
+dumbbell. These are reqruited when the dumbbell is simulated to be attached to the hand.
+Likewise, we have defined a similar set of contact muscles that are reqruited when the
+dumbbell is simulated to be out of the hand.
+
+This is done by defining a `AnyMuscleModelUsr1` that can define the strength parameter as
+a function. In this case we use an interpolation function to determine when the dumbbell
+switches from being carried by the hand or by the "world".
+
+Run the Inverse dynamics simulation and inspect the MaxMuscleactivity to see how it drops
+when the dumbbell is out of contact with the hand.
+*/
+
+// File with the arm model definition
+#include "Arm2D.any"
+
+
+Main = {
+
+  // -----------------------------------------------------
+  // Environment 
+  // -----------------------------------------------------
+  AnyFolder Environment = {
+    
+    //---------------------------------
+    // We define one simple dumbbell to attach to the hand position
+    AnySeg Dumbbell = {
+      Jii = {1,0.1,1}/20;
+      r0 = {0.4,0,-0.4};
+      Mass = 4;
+    
+      AnyRefNode Drawing = {
+        ARel = RotMat(pi/2,z);
+         AnyDrawSTL drw = {
+           FileName = "Dumbbell.stl";
+           ScaleXYZ = {0.008,0.008,0.008};
+         };
+      };
+    };
+
+    //---------------------------------
+    // Connection between environment objects and the arm model
+    AnyFolder EnvironmentConnection = {
+      
+      AnyStdJoint jnt = {
+        AnySeg &dumbbell = Main.Environment.Dumbbell;
+        AnyRefNode &hand = Main.ArmModel.Segs.LowerArm.HandNode;
+        Constraints.Reaction.Type = {Off,Off,Off,Off,Off,Off};
+      };
+    };
+    
+    
+    
+    //---------------------------------
+    // We define contact muscles that are connecting the dumbbell to the hand
+    // the contact time is determined by the StrengthFunction
+    // by default the dumbbell is in contact with the hand for half the simulation
+    AnyFolder DumbbellToHandContact = {
+
+
+      //---------------------------------
+      // User defined strength function to allow the connection between hand and dumbbell
+      // to switch off
+      AnyFunInterpol StrengthFunction = {
+        Type = Bspline;
+        //BsplineOrder = 4;
+        T = Main.ArmModelStudy.tArray;
+        Data = not(repmat(1,101,smootherstep(
+          T[floor(Main.ArmModelStudy.nStep/2)], 
+          T[ceil(Main.ArmModelStudy.nStep/2)], 
+          T
+        )));
+      };
+
+      //---------------------------------
+      // MuscleModel with variable strength defined by the strength function.
+      AnyMuscleModelUsr1 ContactMuscleModel=   {
+        F0 = 0.000000;
+        S = .StrengthFunction.Data[...ArmModelStudy.iStep][...ArmModelStudy.iStep] * 1000;
+      };
+      
+
+      //---------------------------------
+      // Kinematic measures for all six degree of freedom
+      AnyFolder Measures = {
+        AnyKinMeasureOrg PosX ={
+          AnyKinLinear &lin = ...EnvironmentConnection.jnt.Linear;
+          MeasureOrganizer={0};
+        };
+        AnyKinMeasureOrg PosY ={
+          AnyKinLinear &ref=.PosX.lin;
+          MeasureOrganizer={1};
+        };
+        AnyKinMeasureOrg PosZ ={
+          AnyKinLinear &ref=.PosX.lin;
+          MeasureOrganizer={2};
+        };    
+        AnyKinMeasureOrg RotX ={
+          AnyKinRotational &rot = ...EnvironmentConnection.jnt.Orientation;
+          MeasureOrganizer={2};
+        };
+        AnyKinMeasureOrg RotY ={
+          AnyKinRotational &ref=.RotX.rot;
+          MeasureOrganizer={1};
+        };
+        AnyKinMeasureOrg RotZ ={
+          AnyKinRotational &ref=.RotX.rot;
+          MeasureOrganizer={0};
+        };
+      };
+
+
+      //---------------------------------
+      // AnyGeneralMuscles for each linear and rotational degree of freedom.
+      // In both Pull and Push directions
+      AnyFolder ContactMuscles = {
+
+        // For PosX
+        AnyGeneralMuscle PosX_Push= {
+          AnyKinMeasure& ref= ..Measures.PosX;
+         AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle PosX_Pull= {
+          AnyKinMeasure& ref= ..Measures.PosX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        }; 
+
+        // For PosY
+        AnyGeneralMuscle PosY_Push= {
+          AnyKinMeasure& ref= ..Measures.PosY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle PosY_Pull= {
+          AnyKinMeasure& ref= ..Measures.PosY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        }; 
+
+        // For PosZ
+        AnyGeneralMuscle PosZ_Push= {
+          AnyKinMeasure& ref= ..Measures.PosZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle PosZ_Pull= {
+          AnyKinMeasure& ref= ..Measures.PosZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        };  
+
+        // For RotX
+        AnyGeneralMuscle RotX_Push= {
+          AnyKinMeasure& ref= ..Measures.RotX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle RotX_Pull= {
+          AnyKinMeasure& ref= ..Measures.RotX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        }; 
+
+        // For RotY
+        AnyGeneralMuscle RotY_Push= {
+          AnyKinMeasure& ref= ..Measures.RotY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle RotY_Pull= {
+          AnyKinMeasure& ref= ..Measures.RotY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        };  
+
+        // For RotZ
+        AnyGeneralMuscle RotZ_Push= {
+          AnyKinMeasure& ref= ..Measures.RotZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle RotZ_Pull= {
+          AnyKinMeasure& ref= ..Measures.RotZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        };
+      };
+    };
+
+
+    //---------------------------------
+    // Contact muscles between dumbbell hand the global coordinate system
+    // these are used when the dumbbell is no longer carried by the hand.
+    // the contact time is determined by the StrengthFunction
+    AnyFolder DumbbellToGlobalContact = {
+
+
+      //---------------------------------
+      // User defined strength function to allow the connection between hand and dumbbell
+      // to switch off
+      // It is oppsosite of the one acting between the hand and dumbbell
+      AnyFunInterpol StrengthFunction = {
+        Type = Bspline;
+        //BsplineOrder = 4;
+        T = Main.ArmModelStudy.tArray;
+        Data = repmat(1,101,smootherstep(
+          T[floor(Main.ArmModelStudy.nStep/2)], 
+          T[ceil(Main.ArmModelStudy.nStep/2)], 
+          T
+        ));
+      };
+
+      //---------------------------------
+      // MuscleModel with variable strength defined by the strength function.
+      AnyMuscleModelUsr1 ContactMuscleModel=   {
+        F0 = 0.000000;
+        S = .StrengthFunction.Data[...ArmModelStudy.iStep][...ArmModelStudy.iStep] * 1000;
+      };
+
+
+      //---------------------------------
+      // Kinematic measures for all six degree of freedom
+      AnyFolder Measures = {
+        AnyKinMeasureOrg PosX ={
+          AnyKinLinear lin ={
+          AnySeg &ref = ....Dumbbell;
+          AnyFixedRefFrame &ref2 = Main.ArmModel.GlobalRef;
+        };
+          MeasureOrganizer={0};
+        };
+        AnyKinMeasureOrg PosY ={
+          AnyKinLinear &ref=.PosX.lin;
+          MeasureOrganizer={1};
+        };
+        AnyKinMeasureOrg PosZ ={
+          AnyKinLinear &ref=.PosX.lin;
+          MeasureOrganizer={2};
+        };    
+        AnyKinMeasureOrg RotX ={
+          AnyKinRotational rot ={
+            AnySeg &ref = ....Dumbbell;
+            AnyFixedRefFrame &ref2 = Main.ArmModel.GlobalRef;
+            Type=RotVector;
+          };
+          MeasureOrganizer={2};
+        };
+        AnyKinMeasureOrg RotY ={
+          AnyKinRotational &ref=.RotX.rot;
+          MeasureOrganizer={1};
+        };
+        AnyKinMeasureOrg RotZ ={
+          AnyKinRotational &ref=.RotX.rot;
+          MeasureOrganizer={0};
+        };
+      };
+
+      
+      //---------------------------------
+      // AnyGeneralMuscles for each linear and rotational degree of freedom.
+      // In both Pull and Push directions
+        AnyFolder ContactMuscles = {
+        
+        // For PosX
+        AnyGeneralMuscle PosX_Push= {
+          AnyKinMeasure& ref= ..Measures.PosX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle PosX_Pull= {
+          AnyKinMeasure& ref= ..Measures.PosX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        }; 
+
+        // For PosY
+        AnyGeneralMuscle PosY_Push= {
+          AnyKinMeasure& ref= ..Measures.PosY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle PosY_Pull= {
+          AnyKinMeasure& ref= ..Measures.PosY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        }; 
+
+        // For PosZ
+        AnyGeneralMuscle PosZ_Push= {
+          AnyKinMeasure& ref= ..Measures.PosZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle PosZ_Pull= {
+          AnyKinMeasure& ref= ..Measures.PosZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        };  
+
+        // For RotX
+        AnyGeneralMuscle RotX_Push= {
+          AnyKinMeasure& ref= ..Measures.RotX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle RotX_Pull= {
+          AnyKinMeasure& ref= ..Measures.RotX;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        }; 
+
+        // For RotY
+        AnyGeneralMuscle RotY_Push= {
+          AnyKinMeasure& ref= ..Measures.RotY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle RotY_Pull= {
+          AnyKinMeasure& ref= ..Measures.RotY;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        };  
+
+        // For RotZ
+        AnyGeneralMuscle RotZ_Push= {
+          AnyKinMeasure& ref= ..Measures.RotZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = 1;
+        };
+
+        AnyGeneralMuscle RotZ_Pull= {
+          AnyKinMeasure& ref= ..Measures.RotZ;
+          AnyMuscleModel & mus = ..ContactMuscleModel;
+          ForceDirection = -1;
+        };
+      };
+    };
+  };
+  
+  // Place Environment in study to be part of the simulation
+  ArmModelStudy = {
+    AnyFolder &Env = Main.Environment;
+  };
+};
